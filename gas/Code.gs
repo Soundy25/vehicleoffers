@@ -6,8 +6,43 @@
  */
 
 const SCRIPT_PROP = PropertiesService.getScriptProperties();
+const API_SECRET = SCRIPT_PROP.getProperty("API_SECRET");
 const HMAC_SECRET = SCRIPT_PROP.getProperty("HMAC_SECRET");
 const TARGET_SHEET_NAME = "Vehicles";
+const VEHICLE_COLUMNS = [
+  "Date", "Title", "Price", "Mileage", "Year", "City", "Dist.", "Notebook",
+  "Conformity", "Risk", "Comment", "Seller", "Source", "URL"
+];
+
+// Ligne de référence fournie pour test, dans l'ordre des 14 colonnes :
+// 29/09/2026 | ToyTest yaya | 9999 | 99999 | 0 | MaVille | 999 | NC |
+// TESTCONFORME | AlerteRisque | Commentaire | TESTAUTO | SOURCETEST |
+// https://www.testsite.fr/ad/voitures/3206865999
+
+function doGet(e) {
+  if (!API_SECRET) {
+    return createJsonResponse({ status: "error", message: "Server configuration error: API_SECRET not set." }, 500);
+  }
+
+  const requestSecret = e && e.parameter ? e.parameter.secret || "" : "";
+  if (!slowEquals_(API_SECRET, requestSecret)) {
+    return createJsonResponse({ status: "error", message: "Unauthorized: Invalid or missing API secret." }, 401);
+  }
+
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(TARGET_SHEET_NAME);
+  const keys = [];
+  if (sheet && sheet.getLastRow() > 1) {
+    const urlColumn = VEHICLE_COLUMNS.indexOf("URL") + 1;
+    const values = sheet.getRange(2, urlColumn, sheet.getLastRow() - 1, 1).getDisplayValues();
+    values.forEach(function(row) {
+      if (row[0]) {
+        keys.push(row[0]);
+      }
+    });
+  }
+
+  return createJsonResponse({ status: "success", keys: keys });
+}
 
 function doPost(e) {
   const lock = LockService.getScriptLock();
@@ -37,29 +72,51 @@ function doPost(e) {
 
     const payload = JSON.parse(rawBody);
     const vehicles = payload.vehicles || [];
+    if (!Array.isArray(vehicles)) {
+      return createJsonResponse({ status: "error", message: "Invalid vehicles payload: expected an array." }, 400);
+    }
 
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     let sheet = ss.getSheetByName(TARGET_SHEET_NAME);
     if (!sheet) {
       sheet = ss.insertSheet(TARGET_SHEET_NAME);
-      // Initialisation structurée des en-têtes
-      sheet.appendRow(["Timestamp", "ID", "Title", "Price", "Mileage", "Year", "URL", "Status"]);
+      sheet.appendRow(VEHICLE_COLUMNS);
     }
 
     const timestamp = payload.timestamp ? new Date(payload.timestamp * 1000).toISOString() : new Date().toISOString();
-    const rowsToAdd = vehicles.map(v => [
-      timestamp,
-      v.id || "",
-      v.title || "",
-      v.price || 0,
-      v.mileage || 0,
-      v.year || 0,
-      v.url || "",
-      v.status || "active"
-    ]);
+    const rowsToAdd = vehicles.map(function(vehicle) {
+      if (Array.isArray(vehicle)) {
+        if (vehicle.length !== VEHICLE_COLUMNS.length) {
+          throw new Error("Invalid vehicle row: expected exactly 14 columns.");
+        }
+        return vehicle;
+      }
+      if (!vehicle || typeof vehicle !== "object") {
+        throw new Error("Invalid vehicle: expected an object or a 14-column array.");
+      }
+      return [
+        vehicle.date !== undefined ? vehicle.date : timestamp,
+        vehicle.title !== undefined ? vehicle.title : "",
+        vehicle.price !== undefined ? vehicle.price : 0,
+        vehicle.mileage !== undefined ? vehicle.mileage : 0,
+        vehicle.year !== undefined ? vehicle.year : 0,
+        vehicle.city !== undefined ? vehicle.city : "",
+        vehicle.distance !== undefined ? vehicle.distance : "",
+        vehicle.notebook !== undefined ? vehicle.notebook : "",
+        vehicle.conformity !== undefined ? vehicle.conformity : "",
+        vehicle.risk !== undefined ? vehicle.risk : "",
+        vehicle.comment !== undefined ? vehicle.comment : "",
+        vehicle.seller !== undefined ? vehicle.seller : "",
+        vehicle.source !== undefined ? vehicle.source : "",
+        vehicle.url !== undefined ? vehicle.url : ""
+      ];
+    });
 
     if (rowsToAdd.length > 0) {
-      sheet.getRange(sheet.getLastRow() + 1, 1, rowsToAdd.length, rowsToAdd[0].length).setValues(rowsToAdd);
+      if (sheet.getMaxColumns() < VEHICLE_COLUMNS.length) {
+        sheet.insertColumnsAfter(sheet.getMaxColumns(), VEHICLE_COLUMNS.length - sheet.getMaxColumns());
+      }
+      sheet.getRange(sheet.getLastRow() + 1, 1, rowsToAdd.length, VEHICLE_COLUMNS.length).setValues(rowsToAdd);
     }
 
     return createJsonResponse({ status: "success", inserted_count: rowsToAdd.length });

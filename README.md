@@ -17,3 +17,19 @@ Ce dépôt implmente un pipeline de scraping de véhicules hautement sécurisé,
 docker build -t vehicle-scraper:latest .
 docker run --rm vehicle-scraper:latest mypy .
 docker run --rm vehicle-scraper:latest pytest
+```
+
+## Test manuel d'écriture GAS
+Cette commande envoie une requête signée HMAC-SHA256 conforme aux 14 colonnes de
+`gas/Code.gs` et insère la ligne d'exemple dans l'onglet `Vehicles`, après avoir lu les URL
+existantes avec un GET authentifié. Elle refuse de réinsérer l'annonce si son URL est déjà
+présente. Elle n'est pas appelée par `run.py` ou la CI; lance-la uniquement à la main.
+`API_SECRET` et `HMAC_SECRET` doivent être définis dans les propriétés du script Apps Script
+et dans l'environnement local; ne les commite pas.
+
+```bash
+export GAS_WEB_APP_URL="URL_DE_LA_WEB_APP"
+export API_SECRET="SECRET_API_CONFIGURE_DANS_APPS_SCRIPT"
+export HMAC_SECRET="SECRET_CONFIGURE_DANS_APPS_SCRIPT"
+PYTHONPATH="$PWD" venv/bin/python -m scripts.test_gas_write
+```
