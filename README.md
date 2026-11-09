@@ -8,7 +8,8 @@ Ce dépôt implmente un pipeline de scraping de véhicules hautement sécurisé,
 - `parsers/vehicle_parser.py` : Implémentation concrète pour l'extraction BeautifulSoup sécurisée.
 - `main.py` : Point d'entrée asynchrone principal avec gestion robuste des erreurs et journalisation.
 - `tests/` : Suite complète de tests unitaires et de bout en bout (E2E).
-- `Dockerfile` : Environnement d'exécution hermétique basé sur Microsoft Playwright Python.
+- `scraper/http_engine.py` : Récupération HTTP avec timeout et retries; aucun navigateur n'est lancé pour le moment.
+- `Dockerfile` : Environnement Python 3.11 pour les tests et la vérification statique.
 - `.github/workflows/pipeline.yml` : Pipeline CI automatisé Zero Trust.
 
 ## Exécution locale de la vérification statique et des tests

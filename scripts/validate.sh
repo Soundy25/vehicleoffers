@@ -1,6 +1,6 @@
 # Chemin exact : scripts/validate.sh
 # [Gemini]
-#!/usr/init/env bash
+#!/usr/bin/env bash
 set -euo pipefail
 
 LOG_FILE="/workspaces/vehicleoffers/build.log"
@@ -45,16 +45,14 @@ if ! dpkg -s "${PYTHON_BIN}-venv" &> /dev/null; then
 fi
 
 echo "=== 1. Création et activation de l'environnement virtuel avec $PYTHON_BIN ==="
-rm -rf venv
-"$PYTHON_BIN" -m venv venv
+if [[ ! -x venv/bin/python ]]; then
+    "$PYTHON_BIN" -m venv venv
+fi
 source venv/bin/activate
 
-echo "=== 2. Installation des dépendances et des paquets système Playwright (Zero Trust) ==="
+echo "=== 2. Installation des dépendances Python ==="
 pip install --upgrade pip
-export PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1
 pip install -r requirements.txt
-playwright install chromium
-apt-get update && apt-get install -y libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2 || true
 
 echo "=== 3. Vérification du typage statique (Mypy) ==="
 mypy .
@@ -63,9 +61,6 @@ echo "=== 4. Exécution de la suite de tests (Pytest avec PYTHONPATH explicite) 
 export PYTHONPATH=$PWD
 pytest -v
 
-echo "=== 5. Exécution locale du pipeline ==="
-python run.py
-
 echo "=================================================="
-echo "=== Validation V1 blindée terminée avec succès ($(date)) ==="
+echo "=== Validation statique et tests terminés avec succès ($(date)) ==="
 echo "=================================================="

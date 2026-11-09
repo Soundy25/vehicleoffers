@@ -26,11 +26,4 @@ jobs:
 
       - name: Run Unit & E2E Tests (pytest) inside Container
         run: |
-          docker run --rm \
-            -e API_SECRET="${{ secrets.API_SECRET }}" \
-            -e WEB_APP_URL="${{ secrets.WEB_APP_URL }}" \
-            vehicle-scraper:latest pytest --maxfail=1 --disable-warnings
-
-      - name: Verify Playwright Runtime Parity
-        run: |
-          docker run --rm vehicle-scraper:latest python -c "import playwright; print('Playwright Python Runtime Verified')"
+          docker run --rm vehicle-scraper:latest pytest --maxfail=1 --disable-warnings

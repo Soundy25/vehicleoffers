@@ -1,7 +1,6 @@
 # Dockerfile
-FROM mcr.microsoft.com/playwright/python:v1.49.0-noble
+FROM python:3.11-slim
 
-ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
 
 WORKDIR /app

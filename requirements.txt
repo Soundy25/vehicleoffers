@@ -1,5 +1,4 @@
 aiohttp==3.9.3
-playwright==1.49.0
 pydantic==2.10.5
 beautifulsoup4==4.12.3
 pytest==8.3.4
