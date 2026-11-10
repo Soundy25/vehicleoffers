@@ -20,16 +20,29 @@ docker run --rm vehicle-scraper:latest pytest
 ```
 
 ## Test manuel d'écriture GAS
-Cette commande envoie une requête signée HMAC-SHA256 conforme aux 14 colonnes de
-`gas/Code.gs` et insère la ligne d'exemple dans l'onglet `Vehicles`, après avoir lu les URL
-existantes avec un GET authentifié. Elle refuse de réinsérer l'annonce si son URL est déjà
-présente. Elle n'est pas appelée par `run.py` ou la CI; lance-la uniquement à la main.
-`API_SECRET` et `HMAC_SECRET` doivent être définis dans les propriétés du script Apps Script
-et dans l'environnement local; ne les commite pas.
+Cette commande utilise le contrat Apps Script `GET?action=get_config` puis un POST JSON
+signé par HMAC-SHA256. Elle insère deux lignes d'exemple de 14 colonnes dans `Offres`
+(une `CONFORME`, une `NON CONFORME`), après avoir vérifié leurs URL, puis une entrée de cinq
+colonnes dans `Journal`. Le GAS compte les deux catégories parmi les
+annonces réellement ajoutées et écrit le résultat dans le journal; `total_count` indique le
+nombre d'annonces du lot. La signature et un identifiant unique horodaté protègent le POST
+contre les modifications et les rejeux. Redéploie `gas/Code.gs` dans Apps Script avant de
+lancer ce test. Il n'est pas appelé par `run.py` ou la CI. `API_SECRET` et `HMAC_SECRET`
+doivent être définis dans les propriétés du script Apps Script et dans l'environnement local;
+ne les commite pas.
+
+Pour vérifier depuis l'éditeur Apps Script que le classeur est accessible et que les deux
+onglets existent et acceptent une écriture, exécute manuellement `testEcriture()`. La fonction
+échoue explicitement si `Offres` ou `Journal` manque, ou si les onglets
+n'ont pas assez de colonnes; elle ne crée pas ces onglets. En cas de succès, elle ajoute une
+annonce `CONFORME` et une annonce `NON CONFORME` dans `Offres`, puis insère une ligne de
+résultat en ligne 2 de `Journal`, avec les valeurs de test `99/99/9999`, `99:99`, `99:99`
+et `9` dans les quatre premières colonnes. Le POST normal insère également chaque nouvelle
+ligne de journal en ligne 2, de sorte que l'actualisation la plus récente reste en haut.
 
 ```bash
 export GAS_WEB_APP_URL="URL_DE_LA_WEB_APP"
 export API_SECRET="SECRET_API_CONFIGURE_DANS_APPS_SCRIPT"
-export HMAC_SECRET="SECRET_CONFIGURE_DANS_APPS_SCRIPT"
+export HMAC_SECRET="SECRET_HMAC_CONFIGURE_DANS_APPS_SCRIPT"
 PYTHONPATH="$PWD" venv/bin/python -m scripts.test_gas_write
 ```

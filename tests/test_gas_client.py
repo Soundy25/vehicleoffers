@@ -3,6 +3,7 @@ import asyncio
 import hashlib
 import hmac
 import json
+import time
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -14,7 +15,7 @@ class TestGasWebAppClient(unittest.TestCase):
         self.client = GasWebAppClient(
             web_app_url="https://script.example/exec",
             api_secret="test-api-secret",
-            hmac_secret="test-secret",
+            hmac_secret="test-hmac-secret",
             timeout_seconds=1.0,
         )
 
@@ -43,10 +44,9 @@ class TestGasWebAppClient(unittest.TestCase):
 
         result = asyncio.run(self.client.execute_write_test())
         self.assertEqual(result["status"], "success")
-        self.assertEqual(result["status"], "success")
         session.get.assert_called_once_with(
             "https://script.example/exec",
-            params={"secret": "test-api-secret"},
+            params={"action": "get_config", "secret": "test-api-secret"},
         )
         session.post.assert_called_once()
         self.assertEqual([call[0] for call in session.method_calls], ["get", "post"])
@@ -56,7 +56,7 @@ class TestGasWebAppClient(unittest.TestCase):
         self.assertEqual(
             payload,
             {
-                "vehicles": [
+                "offers": [
                     [
                         "29/09/2026",
                         "ToyTest yaya",
@@ -66,23 +66,48 @@ class TestGasWebAppClient(unittest.TestCase):
                         "MaVille",
                         999,
                         "NC",
-                        "TESTCONFORME",
+                        "CONFORME",
                         "AlerteRisque",
                         "Commentaire",
                         "TESTAUTO",
                         "SOURCETEST",
                         "https://www.testsite.fr/ad/voitures/3206865999",
+                    ],
+                    [
+                        "29/09/2026",
+                        "ToyTest yaya",
+                        9999,
+                        99999,
+                        0,
+                        "MaVille",
+                        999,
+                        "NC",
+                        "NON CONFORME",
+                        "AlerteRisque",
+                        "Commentaire",
+                        "TESTAUTO",
+                        "SOURCETEST",
+                        "https://www.testsite.fr/ad/voitures/3206865999?test=non-conforme",
                     ]
-                ]
+                ],
+                "log": {
+                    "total_count": 2
+                },
+                "timestamp": payload["timestamp"],
+                "request_id": payload["request_id"],
             },
         )
+        self.assertEqual(kwargs["headers"]["Content-Type"], "application/json")
+        self.assertEqual(set(kwargs["params"]), {"signature"})
+        self.assertRegex(kwargs["params"]["signature"], r"^[a-f0-9]{64}$")
         expected_signature = hmac.new(
-            b"test-secret",
+            b"test-hmac-secret",
             kwargs["data"],
             hashlib.sha256,
         ).hexdigest()
-        self.assertEqual(kwargs["headers"]["Content-Type"], "application/json")
-        self.assertEqual(kwargs["headers"]["X-Hub-Signature-256"], f"sha256={expected_signature}")
+        self.assertEqual(kwargs["params"]["signature"], expected_signature)
+        self.assertLessEqual(abs(int(time.time()) - payload["timestamp"]), 5)
+        self.assertRegex(payload["request_id"], r"^[a-f0-9-]{36}$")
 
     @patch("scraper.gas_client.aiohttp.ClientSession")
     def test_write_test_rejects_application_error(self, mock_session_factory: MagicMock) -> None:
@@ -125,7 +150,28 @@ class TestGasWebAppClient(unittest.TestCase):
         session.get.return_value = response_context
         mock_session_factory.return_value = session
 
-        with self.assertRaisesRegex(RuntimeError, "already exists"):
+        with self.assertRaisesRegex(RuntimeError, "already exist"):
+            asyncio.run(self.client.execute_write_test())
+
+        session.post.assert_not_called()
+
+    @patch("scraper.gas_client.aiohttp.ClientSession")
+    def test_write_test_rejects_if_either_sample_url_exists(self, mock_session_factory: MagicMock) -> None:
+        session = MagicMock()
+        session.__aenter__.return_value = session
+        response_context = MagicMock()
+        response = AsyncMock()
+        response.status = 200
+        response.json = AsyncMock(return_value={
+            "status": "success",
+            "keys": ["https://www.testsite.fr/ad/voitures/3206865999?test=non-conforme"],
+        })
+        response_context.__aenter__ = AsyncMock(return_value=response)
+        response_context.__aexit__ = AsyncMock(return_value=False)
+        session.get.return_value = response_context
+        mock_session_factory.return_value = session
+
+        with self.assertRaisesRegex(RuntimeError, "already exist"):
             asyncio.run(self.client.execute_write_test())
 
         session.post.assert_not_called()

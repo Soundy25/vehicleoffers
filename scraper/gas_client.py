@@ -2,7 +2,9 @@
 import hashlib
 import hmac
 import json
+import time
 from typing import Any
+from uuid import uuid4
 
 import aiohttp
 
@@ -26,7 +28,7 @@ class GasWebAppClient:
         async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.get(
                 self.web_app_url,
-                params={"secret": self.api_secret},
+                params={"action": "get_config", "secret": self.api_secret},
             ) as response:
                 if response.status != 200:
                     raise RuntimeError(f"GAS returned HTTP {response.status} for the read request")
@@ -42,15 +44,16 @@ class GasWebAppClient:
         return keys
 
     async def execute_write_test(self) -> dict[str, Any]:
-        """Insert the sample 14-column row after checking its URL is not already present."""
+        """Insert conforming and non-conforming sample rows after checking their URLs."""
         keys = await self.fetch_keys()
         sample_url = "https://www.testsite.fr/ad/voitures/3206865999"
-        if sample_url in keys:
-            raise RuntimeError("The sample vehicle URL already exists in the sheet")
+        non_conforming_url = sample_url + "?test=non-conforme"
+        if sample_url in keys or non_conforming_url in keys:
+            raise RuntimeError("One or more sample vehicle URLs already exist in the sheet")
 
         timeout = aiohttp.ClientTimeout(total=self.timeout_seconds)
         payload = {
-            "vehicles": [
+            "offers": [
                 [
                     "29/09/2026",
                     "ToyTest yaya",
@@ -60,14 +63,35 @@ class GasWebAppClient:
                     "MaVille",
                     999,
                     "NC",
-                    "TESTCONFORME",
+                    "CONFORME",
                     "AlerteRisque",
                     "Commentaire",
                     "TESTAUTO",
                     "SOURCETEST",
                     sample_url,
-                ]
-            ]
+                ],
+                [
+                    "29/09/2026",
+                    "ToyTest yaya",
+                    9999,
+                    99999,
+                    0,
+                    "MaVille",
+                    999,
+                    "NC",
+                    "NON CONFORME",
+                    "AlerteRisque",
+                    "Commentaire",
+                    "TESTAUTO",
+                    "SOURCETEST",
+                    non_conforming_url,
+                ],
+            ],
+            "log": {
+                "total_count": 2
+            },
+            "timestamp": int(time.time()),
+            "request_id": str(uuid4()),
         }
         body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
         signature = hmac.new(
@@ -79,10 +103,10 @@ class GasWebAppClient:
         async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.post(
                 self.web_app_url,
+                params={"signature": signature},
                 data=body,
                 headers={
                     "Content-Type": "application/json",
-                    "X-Hub-Signature-256": f"sha256={signature}",
                 },
             ) as response:
                 if response.status != 200:

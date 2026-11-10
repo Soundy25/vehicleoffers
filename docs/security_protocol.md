@@ -4,13 +4,14 @@ Ce document formalise les exigences de sécurité, d'intégrité et de résilien
 
 ---
 
-## 1. Authentification et Intégrité des Données (HMAC-SHA256)
+## 1. Authentification et intégrité de l'API Google Apps Script
 
-Toute communication sortante entre le scraper (`main.py`) et l'API de persistance Google Apps Script (`gas/Code.gs`) est signée cryptographiquement via une empreinte **HMAC-SHA256**.
+La lecture de configuration et l'écriture utilisent des secrets distincts configurés dans les propriétés du script.
 
-* **Génération (Client Python) :** Le corps de la requête sérialisé en JSON est signé à l'aide d'une clé secrète partagée (`HMAC_SECRET`). La signature est transmise dans l'en-tête HTTP `X-Hub-Signature-256`.
-* **Validation (Serveur GAS) :** Le backend vérifie l'en-tête reçu en recalculant la signature HMAC-SHA256 du payload entrant. 
-* **Protection contre les attaques temporelles :** La comparaison des signatures côté GAS utilise un algorithme en temps constant (`slowEquals_`) pour prévenir toute exploitation par analyse temporelle (*timing attack*).
+* **Lecture de configuration :** le client appelle `GET?action=get_config&secret=...`.
+* **Écriture :** le client signe les octets exacts du JSON POST avec HMAC-SHA256 et `HMAC_SECRET`. La signature est passée en paramètre `signature`, car l'événement `doPost(e)` d'Apps Script n'expose pas les en-têtes HTTP arbitraires.
+* Le corps signé contient un horodatage et un identifiant UUID; le serveur vérifie une fenêtre de cinq minutes et utilise `CacheService` pour refuser les UUID déjà vus pendant dix minutes (protection anti-rejeu au mieux, le cache Apps Script n'étant pas un stockage durable).
+* Les échanges passent par HTTPS. `API_SECRET` et la signature dans les paramètres URL peuvent apparaître dans des journaux intermédiaires; l'accès à ces journaux doit être limité.
 
 ---
 
