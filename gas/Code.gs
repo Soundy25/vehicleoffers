@@ -1,6 +1,51 @@
 // Chemin exact : gas/Code.gs [MODIFIÉ]
 /**
  * Google Apps Script API for the Offres and refresh-log sheets.
+ *
+ * RÈGLES DE GESTION
+ *
+ * Configuration — doGet()
+ * - L'action get_config exige API_SECRET.
+ * - La réponse fournit les URL déjà présentes dans Offres, les URL de Sources
+ *   et les critères de Cible véhicules.
+ * - Une configuration de critères absente ou incomplète provoque une erreur;
+ *   le GAS ne remplace pas les valeurs manquantes par des valeurs par défaut.
+ *
+ * Réception et dédoublonnage — doPost()
+ * - Le POST exige une signature HMAC valide, un horodatage à moins de 5 minutes
+ *   de l'horloge du GAS et un request_id UUID non réutilisé pendant 10 minutes
+ *   (durée de conservation de la clé anti-rejeu en cache).
+ * - Chaque annonce doit contenir exactement 14 colonnes et une URL.
+ * - Une URL déjà présente dans Offres, ou répétée dans le même lot, n'est pas
+ *   insérée une seconde fois.
+ * - Le GAS recalcule toujours CONFORME à partir des critères et des faits reçus;
+ *   la valeur de conformité transmise dans l'annonce n'est pas retenue.
+ *
+ * Conformité — evaluateVehicleConformity_()
+ * - Chaque annonce est comparée à chaque ligne renseignée de Cible véhicules.
+ * - L'annonce est CONFORME si elle satisfait tous les critères d'au moins une
+ *   ligne.
+ * - Si aucune ligne ne permet de conclure et qu'au moins une contient des faits
+ *   manquants, le résultat est À VÉRIFIER; sinon, il est NON CONFORME.
+ * - Prix et kilométrage doivent être inférieurs ou égaux à leur maximum;
+ *   l'année doit être supérieure ou égale à son minimum; la distance doit être
+ *   inférieure ou égale à son maximum. Les bornes sont inclusives.
+ * - La distance est une donnée reçue dans la colonne Dist.; ce GAS ne calcule
+ *   pas l'itinéraire en voiture.
+ * - Une exclusion trouvée dans le titre, la description ou exclusion_text rend
+ *   l'annonce NON CONFORME. La recherche ignore casse et accents et s'effectue
+ *   sur les limites de mots.
+ * - Marque et modèle peuvent être déduits du titre si les faits reçus ne les
+ *   précisent pas. Une donnée requise encore absente, notamment énergie, places
+ *   ou distance, conduit à À VÉRIFIER.
+ *
+ * Écriture et journalisation — doPost()
+ * - Le GAS verrouille l'écriture, insère les nouvelles annonces en haut de
+ *   Offres et le bilan de l'exécution en haut de Journal.
+ * - Les textes pouvant être interprétés comme des formules Sheets sont
+ *   neutralisés avant insertion.
+ * - testEcriture() écrit réellement des lignes de test dans Offres et Journal;
+ *   ne l'exécuter que si ces écritures sont souhaitées.
  */
 const API_SECRET = PropertiesService.getScriptProperties().getProperty("API_SECRET");
 const HMAC_SECRET = PropertiesService.getScriptProperties().getProperty("HMAC_SECRET");
