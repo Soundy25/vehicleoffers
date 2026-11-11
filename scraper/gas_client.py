@@ -3,10 +3,32 @@ import hashlib
 import hmac
 import json
 import time
+from dataclasses import dataclass
 from typing import Any
 from uuid import uuid4
 
 import aiohttp
+
+
+# Chemin exact : scraper/gas_client.py [MODIFIÉ]
+@dataclass(frozen=True)
+class GasVehicleCriteria:
+    brand: str
+    models: tuple[str, ...]
+    budget_max: float
+    mileage_max: float
+    year_min: float
+    energy: str
+    seats: float
+    distance_max_km: float
+    exclusions: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class GasConfiguration:
+    keys: tuple[str, ...]
+    targets: tuple[str, ...]
+    criteria: tuple[GasVehicleCriteria, ...]
 
 
 class GasWebAppClient:
@@ -24,6 +46,78 @@ class GasWebAppClient:
 
     async def fetch_keys(self) -> list[str]:
         """Read existing vehicle IDs from GAS before writing."""
+        result = await self._fetch_config_response()
+        keys = result.get("keys") if isinstance(result, dict) else None
+        if not isinstance(keys, list) or not all(isinstance(key, str) for key in keys):
+            raise RuntimeError("GAS returned an invalid keys list")
+        return keys
+
+    async def fetch_config(self) -> GasConfiguration:
+        """Read deduplication keys, source URLs, and validated vehicle criteria."""
+        result = await self._fetch_config_response()
+        if not isinstance(result, dict):
+            raise RuntimeError("GAS returned a non-object JSON response for the read request")
+
+        keys = result.get("keys")
+        targets = result.get("targets")
+        raw_criteria = result.get("criteria")
+        if not isinstance(keys, list) or not all(isinstance(key, str) for key in keys):
+            raise RuntimeError("GAS returned an invalid keys list")
+        if not isinstance(targets, list) or not all(isinstance(target, str) for target in targets):
+            raise RuntimeError("GAS returned an invalid targets list")
+        if not isinstance(raw_criteria, list):
+            raise RuntimeError("GAS returned an invalid criteria list")
+
+        criteria = tuple(self._parse_criteria(item) for item in raw_criteria)
+        if not criteria:
+            raise RuntimeError("GAS returned an empty criteria list")
+        return GasConfiguration(tuple(keys), tuple(targets), criteria)
+
+    def _parse_criteria(self, value: Any) -> GasVehicleCriteria:
+        if not isinstance(value, dict):
+            raise RuntimeError("GAS returned an invalid vehicle criteria entry")
+        brand = value.get("brand")
+        models = value.get("models")
+        energy = value.get("energy")
+        exclusions = value.get("exclusions")
+        if not isinstance(brand, str) or not brand.strip():
+            raise RuntimeError("GAS returned an invalid criteria brand")
+        if not isinstance(models, list) or not models or not all(
+            isinstance(model, str) and model.strip() for model in models
+        ):
+            raise RuntimeError("GAS returned an invalid criteria models list")
+        if not isinstance(energy, str) or not energy.strip():
+            raise RuntimeError("GAS returned an invalid criteria energy")
+        if not isinstance(exclusions, list) or not all(isinstance(item, str) for item in exclusions):
+            raise RuntimeError("GAS returned an invalid criteria exclusions list")
+
+        numeric_fields = (
+            "budget_max",
+            "mileage_max",
+            "year_min",
+            "seats",
+            "distance_max_km",
+        )
+        numbers: dict[str, float] = {}
+        for field in numeric_fields:
+            number = value.get(field)
+            if isinstance(number, bool) or not isinstance(number, (int, float)):
+                raise RuntimeError(f"GAS returned an invalid numeric criterion: {field}")
+            numbers[field] = float(number)
+
+        return GasVehicleCriteria(
+            brand=brand.strip(),
+            models=tuple(model.strip() for model in models),
+            budget_max=numbers["budget_max"],
+            mileage_max=numbers["mileage_max"],
+            year_min=numbers["year_min"],
+            energy=energy.strip(),
+            seats=numbers["seats"],
+            distance_max_km=numbers["distance_max_km"],
+            exclusions=tuple(exclusions),
+        )
+
+    async def _fetch_config_response(self) -> Any:
         timeout = aiohttp.ClientTimeout(total=self.timeout_seconds)
         async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.get(
@@ -38,10 +132,7 @@ class GasWebAppClient:
             raise RuntimeError("GAS returned a non-object JSON response for the read request")
         if result.get("status") != "success":
             raise RuntimeError(f"GAS rejected the read request: {result.get('message', 'unknown error')}")
-        keys = result.get("keys")
-        if not isinstance(keys, list) or not all(isinstance(key, str) for key in keys):
-            raise RuntimeError("GAS returned an invalid keys list")
-        return keys
+        return result
 
     async def execute_write_test(self) -> dict[str, Any]:
         """Insert conforming and non-conforming sample rows after checking their URLs."""
@@ -56,37 +147,53 @@ class GasWebAppClient:
             "offers": [
                 [
                     "29/09/2026",
-                    "ToyTest yaya",
+                    "Toyota Yaris hybride test conforme",
                     9999,
                     99999,
-                    0,
-                    "MaVille",
-                    999,
-                    "NC",
+                    2021,
+                    "Besançon",
+                    100,
+                    "Oui",
                     "CONFORME",
                     "AlerteRisque",
                     "Commentaire",
-                    "TESTAUTO",
-                    "SOURCETEST",
+                    "Garage test",
+                    "L'Argus",
                     sample_url,
                 ],
                 [
                     "29/09/2026",
-                    "ToyTest yaya",
+                    "Toyota Yaris hybride test non conforme",
                     9999,
-                    99999,
-                    0,
-                    "MaVille",
-                    999,
-                    "NC",
+                    120001,
+                    2021,
+                    "Besançon",
+                    100,
+                    "Oui",
                     "NON CONFORME",
                     "AlerteRisque",
                     "Commentaire",
-                    "TESTAUTO",
-                    "SOURCETEST",
+                    "Garage test",
+                    "L'Argus",
                     non_conforming_url,
                 ],
             ],
+            "vehicle_facts": {
+                sample_url: {
+                    "make": "Toyota",
+                    "model": "Yaris",
+                    "energy": "Hybride",
+                    "seats": 5,
+                    "description": "Ligne de test"
+                },
+                non_conforming_url: {
+                    "make": "Toyota",
+                    "model": "Yaris",
+                    "energy": "Hybride",
+                    "seats": 5,
+                    "description": "Ligne de test"
+                }
+            },
             "log": {
                 "total_count": 2
             },

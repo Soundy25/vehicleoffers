@@ -1,4 +1,5 @@
 # parsers/base_parser.py [MODIFIED]
+# Chemin exact : parsers/base_parser.py [MODIFIÉ]
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
@@ -7,6 +8,15 @@ class VehicleData(BaseModel):
     """Modèle Pydantic garantissant la structure et la validation rigoureuse des données."""
     title: str = Field(..., min_length=1)
     price: Optional[float] = Field(default=None, ge=0.0)
+    mileage: Optional[int] = Field(default=None, ge=0)
+    year: Optional[int] = Field(default=None, ge=1886)
+    city: Optional[str] = None
+    seller: Optional[str] = None
+    make: Optional[str] = None
+    model: Optional[str] = None
+    energy: Optional[str] = None
+    seats: Optional[int] = Field(default=None, ge=1)
+    description: Optional[str] = None
     url: Optional[str] = Field(default=None)
 
 class BaseParser(ABC):
@@ -24,9 +34,5 @@ class BaseParser(ABC):
 
     def validate_and_clean(self, raw_data: Dict[str, Any]) -> Dict[str, Any]:
         """Validation unitaire et nettoyage des données via le modèle Pydantic."""
-        try:
-            validated = VehicleData(**raw_data)
-            return validated.model_dump()
-        except Exception as e:
-            # Gestion fine des exceptions pour éviter la rupture du pipeline en aval
-            return {"title": "Donnée invalide", "price": None, "url": None, "error": str(e)}
+        validated = VehicleData(**raw_data)
+        return validated.model_dump()

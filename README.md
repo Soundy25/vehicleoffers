@@ -5,10 +5,12 @@ Ce dépôt implmente un pipeline de scraping de véhicules hautement sécurisé,
 
 ## Structure du Projet
 - `parsers/base_parser.py` : Classe abstraite de base avec validation Pydantic et typage strict.
-- `parsers/vehicle_parser.py` : Implémentation concrète pour l'extraction BeautifulSoup sécurisée.
-- `main.py` : Point d'entrée asynchrone principal avec gestion robuste des erreurs et journalisation.
+- `parsers/vehicle_parser.py` : Extraction des véhicules depuis les blocs JSON-LD schema.org avec validation Pydantic.
+- `main.py` : Point d'entrée du pipeline de lecture seule avec gestion des erreurs et journalisation.
 - `tests/` : Suite complète de tests unitaires et de bout en bout (E2E).
-- `scraper/http_engine.py` : Récupération HTTP avec timeout et retries; aucun navigateur n'est lancé pour le moment.
+- `scraper/http_engine.py` : Récupération HTTP utilisée par les collecteurs compatibles.
+- `scraper/browser_engine.py` : navigation Playwright ponctuelle, sans camouflage ni interaction automatisée.
+- `scraper/orchestrator.py` : actualisation en lecture seule, limitée à L'Argus et à trois pages détail par exécution.
 - `Dockerfile` : Environnement Python 3.11 pour les tests et la vérification statique.
 - `.github/workflows/pipeline.yml` : Pipeline CI automatisé Zero Trust.
 
@@ -19,7 +21,48 @@ docker run --rm vehicle-scraper:latest mypy .
 docker run --rm vehicle-scraper:latest pytest
 ```
 
-## Test manuel d'écriture GAS
+## Probe Playwright ponctuel
+Playwright utilise Chromium gratuitement. Après installation des dépendances Python et du navigateur,
+tu peux lancer une seule navigation explicite vers une page pour laquelle tu as l'autorisation :
+
+```bash
+venv/bin/python -m playwright install chromium
+PYTHONPATH="$PWD" venv/bin/python -m scripts.probe_site "https://example.com/"
+```
+
+Le probe n'effectue ni clic, ni extraction, ni retry et ne conserve pas de session entre les lancements.
+Il signale les réponses HTTP 401/403/429 ou quelques pages de vérification courantes, puis s'arrête.
+Il n'essaie pas de masquer l'automatisation ni de contourner un blocage. Un statut favorable ne garantit
+pas que l'automatisation est autorisée ou qu'elle ne sera pas bloquée ultérieurement.
+
+Le préfiltre de résultats est implémenté dans `scraper/listing_parser.py` :
+`select_detail_candidates()` dédoublonne les URL et écarte uniquement les annonces dont
+les informations visibles démontrent une incompatibilité. Les champs absents restent
+à examiner sur la page détail. Cette fonction est pure et n'ouvre aucune page par elle-même.
+
+`run.py` et `main.py` lancent l'orchestrateur depuis `GAS_WEB_APP_URL` et `API_SECRET`.
+Il lit d'abord la configuration GAS, consulte uniquement une recherche L'Argus, puis ouvre
+séquentiellement au plus trois détails présélectionnés. Il s'arrête dès qu'un refus d'accès ou
+une page de vérification est détecté. L'exécution ne fait aucun POST et n'écrit pas dans le Sheet.
+Pour chaque annonce détaillée, `scraper/road_distance.py` géocode la commune et Besançon,
+puis demande à OSRM un itinéraire voiture; le calcul compare les centres des communes, pas
+les adresses exactes. Il utilise Nominatim et le serveur public OSRM, sans clé ni frais,
+avec mise en cache par exécution et au moins une seconde entre les requêtes de géocodage.
+Ces services publics n'offrent pas de garantie de disponibilité. Si la commune manque,
+ne peut être géocodée ou si aucun itinéraire n'est fourni, le statut reste `À VÉRIFIER`.
+Les données cartographiques sont fournies par OpenStreetMap contributors.
+
+## Validation de conformité des annonces
+Le GAS lit les critères de chaque ligne de `Cible véhicules` et les renvoie avec `get_config`.
+Au POST, il recalcule la colonne `CONFORME` lui-même : `CONFORME`, `NON CONFORME` ou `À VÉRIFIER`
+si une donnée requise manque. Les bornes prix/km/année sont inclusives; les exclusions de
+`Ne pas retenir` sont recherchées sans distinction de casse dans le titre et la description.
+Le client doit fournir les faits extraits dans `vehicle_facts`, indexés par URL, avec `make`,
+`model`, `energy`, `seats` et `description`. La distance en kilomètres doit être fournie dans
+la colonne `Dist.`. Les commentaires de conformité sont ajoutés à `Comment`. Le script
+`testConformityRules()` dans `gas/Code.gs` vérifie les cas principaux sans écrire dans le Sheet.
+
+## Test manuel d'écriture GAS (destructif)
 Cette commande utilise le contrat Apps Script `GET?action=get_config` puis un POST JSON
 signé par HMAC-SHA256. Elle insère deux lignes d'exemple de 14 colonnes dans `Offres`
 (une `CONFORME`, une `NON CONFORME`), après avoir vérifié leurs URL, puis une entrée de cinq

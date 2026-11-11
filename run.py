@@ -1,5 +1,5 @@
 # Chemin exact : run.py [MODIFIED]
-# [Gemini]
+# Chemin exact : run.py [MODIFIÉ]
 import sys
 import logging
 from scraper.orchestrator import PipelineOrchestrator
@@ -13,14 +13,14 @@ logger = logging.getLogger("RunScript")
 def main() -> None:
     logger.info("Démarrage du runner principal V1 blindée")
     try:
-        orchestrator = PipelineOrchestrator()
+        orchestrator = PipelineOrchestrator.from_environment()
         success = orchestrator.run()
         if not success:
             logger.error("Le pipeline a retourné un statut d'échec.")
             sys.exit(1)
         logger.info("Pipeline exécuté avec succès.")
-    except Exception as e:
-        logger.critical(f"Exception critique non gérée dans le runner : {e}", exc_info=True)
+    except Exception as error:
+        logger.critical("Exception critique non gérée dans le runner.", exc_info=error)
         sys.exit(1)
 
 if __name__ == "__main__":

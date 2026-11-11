@@ -1,35 +1,93 @@
 # Chemin exact : tests/test_vehicle_parser.py [MODIFIED]
-# [Gemini]
-from typing import Any, Dict
+# Chemin exact : tests/test_vehicle_parser.py [MODIFIÉ]
+import asyncio
+
 import pytest
 
-def parse_vehicle_html(html_content: str) -> Dict[str, Any]:
-    """
-    Fonction de stub ou d'appel au parseur réel pour l'extraction des données véhicule.
-    Assure une robustesse Zero Trust face aux structures HTML malformées ou incomplètes.
-    """
-    if not html_content or not isinstance(html_content, str):
-        raise ValueError("Le contenu HTML fourni est invalide ou vide.")
-    
-    # Simulation de parsing blindé
-    return {
-        "title": "Véhicule Test",
-        "price": 15000,
-        "currency": "EUR",
-        "mileage": 50000
+from parsers.vehicle_parser import VehicleParser
+
+
+def test_vehicle_parser_rejects_empty_html() -> None:
+    with pytest.raises(ValueError, match="Le contenu HTML source ne peut pas être vide."):
+        VehicleParser("")
+
+
+def test_vehicle_parser_extracts_schema_vehicle_fields() -> None:
+    html = """
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "Car",
+      "name": "Toyota Yaris hybride",
+      "brand": {"@type": "Brand", "name": "Toyota"},
+      "model": "Yaris",
+      "vehicleModelDate": "2021-01-01",
+      "mileageFromOdometer": {"@type": "QuantitativeValue", "value": 52300},
+      "fuelType": "Hybride",
+      "vehicleSeatingCapacity": 5,
+      "description": "Carnet d'entretien disponible",
+      "offers": {
+        "@type": "Offer",
+        "price": "12990",
+        "seller": {
+          "@type": "AutoDealer",
+          "name": "Garage Exemple",
+          "address": {"addressLocality": "Lyon"}
+        }
+      },
+      "url": "https://example.com/annonce/123"
     }
+    </script>
+    """
 
-def test_parse_vehicle_valid_html() -> None:
-    """Valide l'extraction correcte des données à partir d'un HTML valide."""
-    sample_html = "<div class='vehicle'><h1>Véhicule Test</h1><span class='price'>15000</span></div>"
-    result: Dict[str, Any] = parse_vehicle_html(sample_html)
-    
-    assert result["title"] == "Véhicule Test"
-    assert result["price"] == 15000
-    assert result["currency"] == "EUR"
-    assert result["mileage"] == 50000
+    result = asyncio.run(VehicleParser(html).parse())
 
-def test_parse_vehicle_invalid_html() -> None:
-    """Valide la gestion rigoureuse des exceptions en cas de données corrompues ou vides."""
-    with pytest.raises(ValueError, match="Le contenu HTML fourni est invalide ou vide."):
-        parse_vehicle_html("")
+    assert result == [
+        {
+            "title": "Toyota Yaris hybride",
+            "price": 12990.0,
+            "mileage": 52300,
+            "year": 2021,
+            "city": "Lyon",
+            "seller": "Garage Exemple",
+            "make": "Toyota",
+            "model": "Yaris",
+            "energy": "Hybride",
+            "seats": 5,
+            "description": "Carnet d'entretien disponible",
+            "url": "https://example.com/annonce/123",
+        }
+    ]
+
+
+def test_vehicle_parser_does_not_invent_missing_values() -> None:
+    html = """
+    <script type="application/ld+json">
+    {"@type": "Car", "name": "Toyota Yaris"}
+    </script>
+    """
+
+    result = asyncio.run(VehicleParser(html).parse())
+
+    assert result == [
+        {
+            "title": "Toyota Yaris",
+            "price": None,
+            "mileage": None,
+            "year": None,
+            "city": None,
+            "seller": None,
+            "make": None,
+            "model": None,
+            "energy": None,
+            "seats": None,
+            "description": None,
+            "url": None,
+        }
+    ]
+
+
+def test_vehicle_parser_returns_no_vehicle_when_json_ld_is_absent() -> None:
+    result = asyncio.run(VehicleParser("<html><h1>Toyota Yaris</h1></html>").parse())
+
+    assert result == []

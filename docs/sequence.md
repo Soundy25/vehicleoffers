@@ -1,44 +1,47 @@
 sequenceDiagram
     autonumber
     actor Utilisateur
-    participant GHA as GitHub Actions (Python + Playwright)
+    participant Local as Exécution locale (Python + Playwright)
     participant GAS as Web App (Google Apps Script)
     participant GS as Google Sheet
+    participant Cible as Site L'Argus
+    participant Nominatim as Géocodage OpenStreetMap
+    participant OSRM as Routage voiture OSRM
 
-    Utilisateur->>GHA: Déclenchement automatique (Cron)
-    Note over GHA,GAS: Le GET/POST GAS est actuellement exercé par le test manuel, pas par run.py ou la CI
+    Utilisateur->>Local: Lance run.py ou main.py (une actualisation)
+    Note over Local,GAS: Exécution en lecture seule; aucun POST ni écriture au Sheet
 
-    GHA->>GAS: GET /exec?action=get_config&secret=API_SECRET
+    Local->>GAS: GET /exec?action=get_config&secret=API_SECRET
     activate GAS
     GAS->>GAS: Vérifie API_SECRET
     GAS->>GS: Lit les URL existantes (colonne 'URL' de 'Offres')
     GS-->>GAS: Liste des clés connues
-    GAS-->>GHA: JSON de configuration (tableau 'keys')
+    GAS->>GS: Lit les règles de 'Cible véhicules'
+    GS-->>GAS: Critères de conformité
+    GAS-->>Local: JSON de configuration (keys, targets, criteria)
     deactivate GAS
 
-    loop Pour chaque URL source de la liste
-        Note over GHA: Moteur Playwright Headless
-        GHA->>GHA: Lance Chromium Headless & émule un navigateur réel
-        GHA->>Cible: Navigation sur la page de recherche (Exécute le JS / Anti-bot)
-        Cible-->>GHA: Code HTML rendu
+    Local->>Cible: Une navigation vers la recherche L'Argus
+    Cible-->>Local: Code HTML rendu, si l'accès est permis
 
-        GHA->>GHA: Extrait les URLs brutes des annonces présentes
+    loop Jusqu'à 3 candidates inconnues présélectionnées
+        Note over Local: Playwright standard, sans camouflage, interaction ni retry
+        Local->>Local: Extrait les URLs et faits visibles
 
-        alt L'URL est présente dans l'index 'keys' (Déjà connue)
-            GHA->>GHA: Ignore l'annonce (Zéro visite de détail)
-        else Nouvelle URL (Inconnue dans le Sheet)
-            GHA->>Cible: Visite de la page de détail (Playwright)
-            Cible-->>GHA: Code HTML de la page détail
-            GHA->>GHA: Extrait les métadonnées (Prix, km, année, titre, url)
+        Local->>Local: Préfiltre selon les règles de Cible véhicules
+        alt URL déjà connue ou annonce explicitement incompatible
+            Local->>Local: Ignore l'annonce (zéro visite de détail)
+        else Nouvelle candidate ou faits insuffisants pour conclure
+            Local->>Cible: Visite séquentielle du détail
+            Cible-->>Local: Code HTML du détail
+            Local->>Local: Extrait les métadonnées
+            Local->>Nominatim: Géocode la commune et Besançon
+            Nominatim-->>Local: Coordonnées des centres de communes
+            Local->>OSRM: Calcule un itinéraire en voiture
+            OSRM-->>Local: Distance routière
+            Local->>Local: Évalue la conformité
         end
     end
 
-    GHA->>GAS: POST /exec?signature=HMAC-SHA256 (JSON offers + log + timestamp + request_id)
-    activate GAS
-    GAS->>GAS: Vérifie HMAC, l'horodatage et le rejeu & verrouille
-    GAS->>GS: Ajoute les nouvelles annonces dans 'Offres'
-    GAS->>GS: Compte CONFORME / NON CONFORME et insère une ligne en ligne 2 de 'Journal'
-    GAS-->>GHA: Bilan JSON (nb Insérées, statut)
-    deactivate GAS
-
-    GHA-->>Utilisateur: Fin du cycle / Rapport d'exécution
+    Note over Local: Si une commune ou un itinéraire est introuvable, le statut reste À VÉRIFIER
+    Local-->>Utilisateur: Rapport local, sans écriture au Sheet

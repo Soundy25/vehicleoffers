@@ -59,37 +59,53 @@ class TestGasWebAppClient(unittest.TestCase):
                 "offers": [
                     [
                         "29/09/2026",
-                        "ToyTest yaya",
+                        "Toyota Yaris hybride test conforme",
                         9999,
                         99999,
-                        0,
-                        "MaVille",
-                        999,
-                        "NC",
+                        2021,
+                        "Besançon",
+                        100,
+                        "Oui",
                         "CONFORME",
                         "AlerteRisque",
                         "Commentaire",
-                        "TESTAUTO",
-                        "SOURCETEST",
+                        "Garage test",
+                        "L'Argus",
                         "https://www.testsite.fr/ad/voitures/3206865999",
                     ],
                     [
                         "29/09/2026",
-                        "ToyTest yaya",
+                        "Toyota Yaris hybride test non conforme",
                         9999,
-                        99999,
-                        0,
-                        "MaVille",
-                        999,
-                        "NC",
+                        120001,
+                        2021,
+                        "Besançon",
+                        100,
+                        "Oui",
                         "NON CONFORME",
                         "AlerteRisque",
                         "Commentaire",
-                        "TESTAUTO",
-                        "SOURCETEST",
+                        "Garage test",
+                        "L'Argus",
                         "https://www.testsite.fr/ad/voitures/3206865999?test=non-conforme",
                     ]
                 ],
+                "vehicle_facts": {
+                    "https://www.testsite.fr/ad/voitures/3206865999": {
+                        "make": "Toyota",
+                        "model": "Yaris",
+                        "energy": "Hybride",
+                        "seats": 5,
+                        "description": "Ligne de test"
+                    },
+                    "https://www.testsite.fr/ad/voitures/3206865999?test=non-conforme": {
+                        "make": "Toyota",
+                        "model": "Yaris",
+                        "energy": "Hybride",
+                        "seats": 5,
+                        "description": "Ligne de test"
+                    }
+                },
                 "log": {
                     "total_count": 2
                 },
@@ -108,6 +124,42 @@ class TestGasWebAppClient(unittest.TestCase):
         self.assertEqual(kwargs["params"]["signature"], expected_signature)
         self.assertLessEqual(abs(int(time.time()) - payload["timestamp"]), 5)
         self.assertRegex(payload["request_id"], r"^[a-f0-9-]{36}$")
+
+    @patch("scraper.gas_client.aiohttp.ClientSession")
+    def test_fetch_config_returns_criteria_and_targets(self, mock_session_factory: MagicMock) -> None:
+        session = MagicMock()
+        session.__aenter__.return_value = session
+        response_context = MagicMock()
+        response = AsyncMock()
+        response.status = 200
+        response.json = AsyncMock(return_value={
+            "status": "success",
+            "keys": ["known-url"],
+            "targets": ["https://example.com/search"],
+            "criteria": [{
+                "brand": "Toyota",
+                "models": ["Yaris", "Auris"],
+                "budget_max": 14000,
+                "mileage_max": 120000,
+                "year_min": 2020,
+                "energy": "Hybride",
+                "seats": 5,
+                "distance_max_km": 350,
+                "exclusions": ["2 places", "véhicule accidenté"],
+            }],
+        })
+        response_context.__aenter__ = AsyncMock(return_value=response)
+        response_context.__aexit__ = AsyncMock(return_value=False)
+        session.get.return_value = response_context
+        mock_session_factory.return_value = session
+
+        config = asyncio.run(self.client.fetch_config())
+
+        self.assertEqual(config.keys, ("known-url",))
+        self.assertEqual(config.targets, ("https://example.com/search",))
+        self.assertEqual(config.criteria[0].brand, "Toyota")
+        self.assertEqual(config.criteria[0].distance_max_km, 350)
+        self.assertEqual(config.criteria[0].exclusions, ("2 places", "véhicule accidenté"))
 
     @patch("scraper.gas_client.aiohttp.ClientSession")
     def test_write_test_rejects_application_error(self, mock_session_factory: MagicMock) -> None:

@@ -1,8 +1,7 @@
 # Chemin exact : main.py [MODIFIED]
-# [Gemini]
+# Chemin exact : main.py [MODIFIÉ]
 import sys
 import logging
-from typing import NoReturn
 
 logging.basicConfig(
     level=logging.INFO,
@@ -18,7 +17,7 @@ def main() -> None:
         # Importation locale pour éviter les boucles circulaires et isoler l'initialisation
         from scraper.orchestrator import PipelineOrchestrator
 
-        orchestrator = PipelineOrchestrator()
+        orchestrator = PipelineOrchestrator.from_environment()
         success = orchestrator.run()
 
         if not success:
@@ -26,8 +25,8 @@ def main() -> None:
             sys.exit(1)
 
         logger.info("Exécution du pipeline réussie avec succès.")
-    except Exception as e:
-        logger.critical(f"Erreur critique non interceptée dans le pipeline principal : {e}", exc_info=True)
+    except Exception:
+        logger.critical("Erreur critique non interceptée dans le pipeline principal.", exc_info=True)
         sys.exit(1)
 
 if __name__ == "__main__":
